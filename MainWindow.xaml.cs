@@ -54,6 +54,8 @@ public partial class MainWindow : Window
     private static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromRect(ref RECT rect, uint flags);
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out POINT pt);
     [DllImport("shcore.dll")]
     private static extern int GetDpiForMonitor(IntPtr hMonitor, int type, out uint dpiX, out uint dpiY);
 
@@ -132,6 +134,7 @@ public partial class MainWindow : Window
     private bool _inSizeMove;          // 사용자 드래그 중 여부
     private int _targetX, _targetY;    // 물리 픽셀 기준 목표 위치
     private bool _targetValid;
+    private int _dragOffsetX, _dragOffsetY; // 드래그 시작 시 마우스-창 좌상단 오프셋
 
     public MainWindow()
     {
@@ -222,6 +225,11 @@ public partial class MainWindow : Window
         else if (msg == WM_ENTERSIZEMOVE)
         {
             _inSizeMove = true;
+            // 스냅 해제 계산용: 마우스와 창 좌상단의 오프셋 기억
+            GetCursorPos(out var cp);
+            GetWindowRect(_hwnd, out var wr);
+            _dragOffsetX = cp.X - wr.Left;
+            _dragOffsetY = cp.Y - wr.Top;
         }
         else if (msg == WM_EXITSIZEMOVE)
         {
@@ -234,14 +242,19 @@ public partial class MainWindow : Window
         }
         else if (msg == WM_MOVING && _inSizeMove)
         {
-            // 드래그 중 모니터 작업 영역 가장자리에 가까워지면 자석처럼 스냅
+            // 스냅된 좌표를 기준으로 다음 이동이 계산되면 한번 붙은 창이 안 떨어지므로,
+            // 항상 마우스 위치에서 "원래 있어야 할 위치"를 직접 계산한 뒤 스냅을 적용한다
             var r = Marshal.PtrToStructure<RECT>(lParam);
-            if (SnapToWorkArea(ref r))
-            {
-                Marshal.StructureToPtr(r, lParam, false);
-                handled = true;
-                return (IntPtr)1;
-            }
+            int w = r.Right - r.Left, h = r.Bottom - r.Top;
+            GetCursorPos(out var cur);
+            r.Left = cur.X - _dragOffsetX;
+            r.Top = cur.Y - _dragOffsetY;
+            r.Right = r.Left + w;
+            r.Bottom = r.Top + h;
+            SnapToWorkArea(ref r);
+            Marshal.StructureToPtr(r, lParam, false);
+            handled = true;
+            return (IntPtr)1;
         }
         else if (msg == WM_DPICHANGED)
         {
