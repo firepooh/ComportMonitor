@@ -17,6 +17,8 @@ public partial class MainWindow : Window
     private const int WM_WINDOWPOSCHANGING = 0x0046;
     private const int WM_ENTERSIZEMOVE = 0x0231;
     private const int WM_EXITSIZEMOVE = 0x0232;
+    private const int WM_MOVING = 0x0216;
+    private const int SnapDistance = 20; // 자석 스냅 감지 거리 (DIU, DPI 배율 적용)
     private const int WM_DPICHANGED = 0x02E0;
     private const int WM_STYLECHANGING = 0x007C;
     private const int GWL_EXSTYLE = -20;
@@ -50,6 +52,8 @@ public partial class MainWindow : Window
     private static extern uint GetDpiForWindow(IntPtr hWnd);
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromRect(ref RECT rect, uint flags);
     [DllImport("shcore.dll")]
     private static extern int GetDpiForMonitor(IntPtr hMonitor, int type, out uint dpiX, out uint dpiY);
 
@@ -227,6 +231,17 @@ public partial class MainWindow : Window
             _targetX = r.Left;
             _targetY = r.Top;
             _targetValid = true;
+        }
+        else if (msg == WM_MOVING && _inSizeMove)
+        {
+            // 드래그 중 모니터 작업 영역 가장자리에 가까워지면 자석처럼 스냅
+            var r = Marshal.PtrToStructure<RECT>(lParam);
+            if (SnapToWorkArea(ref r))
+            {
+                Marshal.StructureToPtr(r, lParam, false);
+                handled = true;
+                return (IntPtr)1;
+            }
         }
         else if (msg == WM_DPICHANGED)
         {
@@ -435,6 +450,45 @@ public partial class MainWindow : Window
         if (r.Right - r.Left != pw || r.Bottom - r.Top != ph)
             SetWindowPos(_hwnd, IntPtr.Zero, 0, 0, pw, ph,
                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    /// <summary>드래그 중인 rect가 작업 영역 가장자리 근처면 딱 붙도록 보정한다.</summary>
+    private bool SnapToWorkArea(ref RECT r)
+    {
+        var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfo(MonitorFromRect(ref r, MONITOR_DEFAULTTONEAREST), ref mi))
+            return false;
+        var work = mi.rcWork;
+        int t = (int)Math.Round(SnapDistance * GetDpiForWindow(_hwnd) / 96.0);
+        int w = r.Right - r.Left, h = r.Bottom - r.Top;
+        bool snapped = false;
+
+        if (Math.Abs(r.Left - work.Left) <= t)
+        {
+            r.Left = work.Left;
+            r.Right = r.Left + w;
+            snapped = true;
+        }
+        else if (Math.Abs(work.Right - r.Right) <= t)
+        {
+            r.Right = work.Right;
+            r.Left = r.Right - w;
+            snapped = true;
+        }
+
+        if (Math.Abs(r.Top - work.Top) <= t)
+        {
+            r.Top = work.Top;
+            r.Bottom = r.Top + h;
+            snapped = true;
+        }
+        else if (Math.Abs(work.Bottom - r.Bottom) <= t)
+        {
+            r.Bottom = work.Bottom;
+            r.Top = r.Bottom - h;
+            snapped = true;
+        }
+        return snapped;
     }
 
     private RECT GetWorkArea()
