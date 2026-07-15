@@ -47,4 +47,4 @@ Visual Studio 2022에서 `ComportMonitor.csproj`를 바로 열어도 됩니다.
 
 ## 라이선스
 
-별도 표기 전까지 All rights reserved.
+[MIT](LICENSE)
