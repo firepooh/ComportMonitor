@@ -8,7 +8,7 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: write   # 태그 푸시 시 Release 생성용
+  contents: read    # 릴리스는 별도 public 저장소(ComportMonitor-releases)에 생성
 
 jobs:
   build:
@@ -67,14 +67,17 @@ jobs:
           name: ComportMonitor-win-x64
           path: dist/*
 
+      # 소스 저장소는 private이므로 릴리스는 배포 전용 public 저장소에 만든다.
+      # RELEASES_TOKEN: 두 저장소 contents:write 권한이 있는 PAT (Actions secret)
       - name: Create Release (tag push only)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: >
           gh release create '${{ github.ref_name }}'
           'dist/ComportMonitor.exe#ComportMonitor.exe (1MB, .NET 8 Desktop Runtime 필요)'
           'dist/ComportMonitor-standalone.exe#ComportMonitor-standalone.exe (런타임 포함, 바로 실행)'
+          --repo firepooh/ComportMonitor-releases
           --title 'ComportMonitor ${{ github.ref_name }}'
-          --generate-notes
+          --notes 'ComportMonitor ${{ github.ref_name }} — 자세한 내용과 사용법은 README 참고'
