@@ -37,6 +37,7 @@
                 <MenuItem x:Name="BusyMenu" Header="점유 상태 표시" IsCheckable="True" IsChecked="True" Click="BusyWatch_Click"/>
                 <MenuItem Header="투명도 초기화 (Ctrl+휠로 조절)" Click="ResetTint_Click"/>
                 <Separator/>
+                <MenuItem x:Name="VersionMenu" IsEnabled="False" FontSize="11"/>
                 <MenuItem Header="종료" Click="Exit_Click"/>
             </ContextMenu>
         </Border.ContextMenu>

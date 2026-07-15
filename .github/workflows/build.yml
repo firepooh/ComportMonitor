@@ -1,0 +1,59 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write   # 태그 푸시 시 Release 생성용
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # 태그(v1.2.3)면 태그에서 버전을 뽑고, 일반 푸시면 개발 버전을 붙인다
+      - name: Determine version
+        id: ver
+        shell: pwsh
+        run: |
+          if ('${{ github.ref }}'.StartsWith('refs/tags/v')) {
+            $v = '${{ github.ref_name }}'.TrimStart('v')
+          } else {
+            $v = "1.0.0-dev.${{ github.run_number }}"
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $v"
+
+      - name: Publish (self-contained single exe)
+        run: >
+          dotnet publish ComportMonitor.csproj -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${{ steps.ver.outputs.version }}
+          -o publish
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComportMonitor-win-x64
+          path: publish/ComportMonitor.exe
+
+      - name: Create Release (tag push only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create '${{ github.ref_name }}' publish/ComportMonitor.exe
+          --title 'ComportMonitor ${{ github.ref_name }}'
+          --generate-notes

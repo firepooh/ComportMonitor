@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
@@ -132,6 +133,12 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = this;
+
+        var infoVer = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion ?? "?";
+        int plus = infoVer.IndexOf('+'); // 빌드 해시 접미사 제거
+        VersionMenu.Header = $"ComportMonitor v{(plus > 0 ? infoVer[..plus] : infoVer)}";
 
         var settings = LoadSettings();
         _busyWatch = settings?.BusyWatch ?? true;
