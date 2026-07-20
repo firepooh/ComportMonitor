@@ -9,11 +9,16 @@
     <RootNamespace>ComportMonitor</RootNamespace>
     <AssemblyName>ComportMonitor</AssemblyName>
     <Version>1.0.0</Version>
+    <ApplicationIcon>ComportMonitor.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="ComportMonitor.ico" />
   </ItemGroup>
 
 </Project>
