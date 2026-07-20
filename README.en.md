@@ -6,7 +6,7 @@ A translucent **COM port monitor widget** that floats on your Windows desktop. S
 
 ![demo](docs/demo.gif)
 
-> When another program opens a port, an `In use` badge appears instantly, and disappears when the port is released.
+> When another program opens a port, its dot turns green, and returns to grey when the port is released.
 
 | Default (acrylic blur) | Max tint (near-opaque) |
 |---|---|
@@ -15,8 +15,8 @@ A translucent **COM port monitor widget** that floats on your Windows desktop. S
 ## Features
 
 - **Live list** — updates the instant a USB device is plugged or unplugged (`WM_DEVICECHANGE` events, no polling)
-- **Connect/disconnect highlight** — new ports flash 🟢 green, removed ports show a 🔴 red strikethrough for 4 seconds
-- **In-use detection** — ports held by another program (terminal, flasher, etc.) get a 🟠 amber dot + `In use` badge (checked every 3 s, toggleable from the right-click menu)
+- **Connect/disconnect highlight** — new ports flash 🟠 amber, removed ports show a 🔴 red strikethrough for 4 seconds
+- **In-use detection** — ports held by another program (terminal, flasher, etc.) show a 🟢 green dot (with an `In use` tooltip on hover; checked every 3 s, toggleable from the right-click menu)
 - **Device names** — the same friendly name as Device Manager (e.g. `Silicon Labs CP210x USB to UART Bridge`), with VID/PID in the tooltip
 - **Opacity control** — one axis from solid panel ↔ acrylic blur ↔ ghost mode (text fades too)
 - **Edge magnet snap** — snaps to monitor edges while dragging
