@@ -353,8 +353,8 @@ public partial class MainWindow : Window
             if (e.Button == WinForms.MouseButtons.Left) ToggleWidget();
         };
         var menu = new WinForms.ContextMenuStrip();
-        menu.Items.Add("표시/숨김", null, (_, _) => ToggleWidget());
-        menu.Items.Add("종료", null, (_, _) => Close());
+        menu.Items.Add("Show / Hide", null, (_, _) => ToggleWidget());
+        menu.Items.Add("Exit", null, (_, _) => Close());
         _tray.ContextMenuStrip = menu;
     }
 
@@ -552,6 +552,10 @@ public partial class MainWindow : Window
 
     private void ResizeToContent()
     {
+        // ObservableCollection 변경 직후엔 ItemsControl이 행 컨테이너를 아직 생성하지
+        // 않아 Measure가 행 높이를 누락한다. UpdateLayout()으로 대기 중인 레이아웃(=행
+        // 생성)을 먼저 반영한 뒤 측정해야 정확한 높이가 나온다.
+        UpdateLayout();
         Root.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         Width = Root.DesiredSize.Width;
         Height = Root.DesiredSize.Height;

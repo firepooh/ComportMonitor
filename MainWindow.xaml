@@ -33,14 +33,14 @@
 
         <Border.ContextMenu>
             <ContextMenu>
-                <MenuItem Header="새로 고침" Click="Refresh_Click"/>
-                <MenuItem x:Name="TopmostMenu" Header="항상 위" IsCheckable="True" IsChecked="True" Click="Topmost_Click"/>
-                <MenuItem x:Name="BusyMenu" Header="점유 상태 표시" IsCheckable="True" IsChecked="True" Click="BusyWatch_Click"/>
-                <MenuItem x:Name="AutoHideMenu" Header="자동 숨김 (5분 무변동)" IsCheckable="True" IsChecked="True" Click="AutoHide_Click"/>
-                <MenuItem Header="투명도 초기화 (Ctrl+휠로 조절)" Click="ResetTint_Click"/>
+                <MenuItem Header="Refresh" Click="Refresh_Click"/>
+                <MenuItem x:Name="TopmostMenu" Header="Always on top" IsCheckable="True" IsChecked="True" Click="Topmost_Click"/>
+                <MenuItem x:Name="BusyMenu" Header="Detect port usage" IsCheckable="True" IsChecked="True" Click="BusyWatch_Click"/>
+                <MenuItem x:Name="AutoHideMenu" Header="Auto-hide (after 5 min idle)" IsCheckable="True" IsChecked="True" Click="AutoHide_Click"/>
+                <MenuItem Header="Reset opacity (Ctrl+Wheel)" Click="ResetTint_Click"/>
                 <Separator/>
                 <MenuItem x:Name="VersionMenu" IsEnabled="False" FontSize="11"/>
-                <MenuItem Header="종료" Click="Exit_Click"/>
+                <MenuItem Header="Exit" Click="Exit_Click"/>
             </ContextMenu>
         </Border.ContextMenu>
 
@@ -73,7 +73,7 @@
                                     Background="#33F59E0B" CornerRadius="4"
                                     Padding="5,1" Margin="8,0,0,0"
                                     VerticalAlignment="Center">
-                                <TextBlock Text="사용 중" Foreground="#FBBF24"
+                                <TextBlock Text="In use" Foreground="#FBBF24"
                                            FontSize="10" FontWeight="Bold"/>
                             </Border>
                             <TextBlock x:Name="DescText"
@@ -106,7 +106,7 @@
             </ItemsControl>
 
             <!-- 포트 없음 -->
-            <TextBlock Text="연결된 COM 포트 없음"
+            <TextBlock Text="No COM ports connected"
                        Foreground="#6B7280" FontSize="12" Margin="0,2,0,0">
                 <TextBlock.Style>
                     <Style TargetType="TextBlock">
