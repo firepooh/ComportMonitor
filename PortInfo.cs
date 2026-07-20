@@ -32,7 +32,7 @@ public class PortInfo : INotifyPropertyChanged
     public string PnpId
     {
         get => _pnpId;
-        set => SetField(ref _pnpId, value);
+        set { if (SetField(ref _pnpId, value)) OnPropertyChanged(nameof(Tooltip)); }
     }
 
     private PortStatus _status;
@@ -46,15 +46,22 @@ public class PortInfo : INotifyPropertyChanged
     public bool IsBusy
     {
         get => _isBusy;
-        set => SetField(ref _isBusy, value);
+        set { if (SetField(ref _isBusy, value)) OnPropertyChanged(nameof(Tooltip)); }
     }
+
+    /// <summary>행 hover 툴팁: 사용 중이면 "In use — " 접두. (배지 대체)</summary>
+    public string Tooltip => IsBusy ? $"In use — {PnpId}" : PnpId;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    private void SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(field, value)) return;
-        field = value;
+    private void OnPropertyChanged(string name) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(name!);
+        return true;
     }
 }

@@ -45,23 +45,22 @@
         </Border.ContextMenu>
 
         <StackPanel>
-            <!-- 헤더 -->
-            <DockPanel Margin="0,0,0,8">
-                <TextBlock DockPanel.Dock="Right"
-                           Text="{Binding Ports.Count}"
-                           Foreground="#7DD3FC" FontSize="12" FontWeight="Bold"
-                           VerticalAlignment="Center"/>
+            <!-- 헤더: 카운트를 라벨 옆에 -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                 <TextBlock Text="COM PORTS"
                            Foreground="#93A3B8" FontSize="11" FontWeight="Bold"
                            VerticalAlignment="Center"/>
-            </DockPanel>
+                <TextBlock Text="{Binding Ports.Count}"
+                           Foreground="#7DD3FC" FontSize="12" FontWeight="Bold"
+                           Margin="8,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
 
             <!-- 포트 목록 -->
             <ItemsControl x:Name="PortList" ItemsSource="{Binding Ports}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="{x:Type local:PortInfo}">
                         <StackPanel Orientation="Horizontal" Margin="0,3"
-                                    ToolTip="{Binding PnpId}">
+                                    ToolTip="{Binding Tooltip}">
                             <Ellipse x:Name="StatusDot" Width="8" Height="8"
                                      Fill="#64748B" VerticalAlignment="Center"/>
                             <TextBlock x:Name="PortNameText"
@@ -69,13 +68,6 @@
                                        Foreground="White" FontFamily="Consolas"
                                        FontSize="14" FontWeight="Bold"
                                        Margin="9,0,0,0" VerticalAlignment="Center"/>
-                            <Border x:Name="BusyBadge" Visibility="Collapsed"
-                                    Background="#33F59E0B" CornerRadius="4"
-                                    Padding="5,1" Margin="8,0,0,0"
-                                    VerticalAlignment="Center">
-                                <TextBlock Text="In use" Foreground="#FBBF24"
-                                           FontSize="10" FontWeight="Bold"/>
-                            </Border>
                             <TextBlock x:Name="DescText"
                                        Text="{Binding Description}"
                                        Foreground="#B8C0CC" FontSize="12"
@@ -83,14 +75,13 @@
                                        MaxWidth="260" TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
                         <DataTemplate.Triggers>
-                            <!-- 점유 표시는 추가/제거 강조보다 우선순위가 낮다 (뒤 트리거가 이김) -->
+                            <!-- 사용 중: 점만 초록(지속). 등장/제거(4초 한시)가 뒤 트리거로 우선 -->
                             <DataTrigger Binding="{Binding IsBusy}" Value="True">
-                                <Setter TargetName="StatusDot" Property="Fill" Value="#F59E0B"/>
-                                <Setter TargetName="BusyBadge" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="StatusDot" Property="Fill" Value="#4ADE80"/>
                             </DataTrigger>
                             <DataTrigger Binding="{Binding Status}" Value="Added">
-                                <Setter TargetName="StatusDot" Property="Fill" Value="#4ADE80"/>
-                                <Setter TargetName="PortNameText" Property="Foreground" Value="#4ADE80"/>
+                                <Setter TargetName="StatusDot" Property="Fill" Value="#FB923C"/>
+                                <Setter TargetName="PortNameText" Property="Foreground" Value="#FB923C"/>
                             </DataTrigger>
                             <DataTrigger Binding="{Binding Status}" Value="Removed">
                                 <Setter TargetName="StatusDot" Property="Fill" Value="#F87171"/>
@@ -98,7 +89,6 @@
                                 <Setter TargetName="PortNameText" Property="TextDecorations" Value="Strikethrough"/>
                                 <Setter TargetName="DescText" Property="TextDecorations" Value="Strikethrough"/>
                                 <Setter TargetName="DescText" Property="Opacity" Value="0.55"/>
-                                <Setter TargetName="BusyBadge" Property="Visibility" Value="Collapsed"/>
                             </DataTrigger>
                         </DataTemplate.Triggers>
                     </DataTemplate>

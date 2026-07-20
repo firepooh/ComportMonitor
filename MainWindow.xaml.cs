@@ -283,18 +283,18 @@ public partial class MainWindow : Window
                 ClampToWorkArea();
             });
         }
-        else if (msg == WM_WINDOWPOSCHANGING && Root.DesiredSize.Width > 0)
+        else if (msg == WM_WINDOWPOSCHANGING && _contentW > 0)
         {
             // 시스템 DPI != 모니터 DPI 환경에서 WPF가 HWND 크기/위치를 잘못된 DPI
-            // 기준으로 밀어넣는 버그 우회: 크기는 항상 콘텐츠 DIU × 실제 DPI로,
+            // 기준으로 밀어넣는 버그 우회: 크기는 항상 캐시된 콘텐츠 DIU × 실제 DPI로,
             // 위치는 드래그 중이 아니면 목표 위치(물리 픽셀)로 강제한다.
             var wp = Marshal.PtrToStructure<WINDOWPOS>(lParam);
             bool changed = false;
             if ((wp.flags & SWP_NOSIZE) == 0)
             {
                 double scale = GetDpiForWindow(_hwnd) / 96.0;
-                int pw = (int)Math.Round(Root.DesiredSize.Width * scale);
-                int ph = (int)Math.Round(Root.DesiredSize.Height * scale);
+                int pw = (int)Math.Round(_contentW * scale);
+                int ph = (int)Math.Round(_contentH * scale);
                 if (wp.cx != pw || wp.cy != ph)
                 {
                     wp.cx = pw;
@@ -550,27 +550,40 @@ public partial class MainWindow : Window
 
     // ── 크기/위치 (물리 픽셀 기준, Win32) ─────────────────────────
 
-    private void ResizeToContent()
+    // 콘텐츠의 무한대-측정 크기(DIU). WPF가 작은 창에 맞춰 Root를 재측정하면
+    // Root.DesiredSize가 그 축소값으로 줄고, 크기 강제가 그 값을 기준 삼아 작은
+    // 크기로 굳는 피드백 루프가 생긴다. 무한대 측정값을 여기 캐시해 모든 크기
+    // 강제의 유일한 기준으로 쓴다 (축소된 창 크기의 영향을 받지 않음).
+    private double _contentW, _contentH;
+
+    private void MeasureContent()
     {
         // ObservableCollection 변경 직후엔 ItemsControl이 행 컨테이너를 아직 생성하지
         // 않아 Measure가 행 높이를 누락한다. UpdateLayout()으로 대기 중인 레이아웃(=행
-        // 생성)을 먼저 반영한 뒤 측정해야 정확한 높이가 나온다.
+        // 생성)을 먼저 반영한 뒤 무한대로 측정해야 정확한 크기가 나온다.
         UpdateLayout();
         Root.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        Width = Root.DesiredSize.Width;
-        Height = Root.DesiredSize.Height;
+        _contentW = Root.DesiredSize.Width;
+        _contentH = Root.DesiredSize.Height;
+    }
+
+    private void ResizeToContent()
+    {
+        MeasureContent();
+        Width = _contentW;
+        Height = _contentH;
         UpdateLayout();
         EnforceSize();
         ClampToWorkArea();
     }
 
-    /// <summary>콘텐츠 DIU × 창의 실제 DPI로 HWND 물리 크기를 맞춘다.</summary>
+    /// <summary>캐시된 콘텐츠 DIU × 창의 실제 DPI로 HWND 물리 크기를 맞춘다.</summary>
     private void EnforceSize()
     {
-        if (_hwnd == IntPtr.Zero || Root.DesiredSize.Width <= 0) return;
+        if (_hwnd == IntPtr.Zero || _contentW <= 0) return;
         double scale = GetDpiForWindow(_hwnd) / 96.0;
-        int pw = (int)Math.Round(Root.DesiredSize.Width * scale);
-        int ph = (int)Math.Round(Root.DesiredSize.Height * scale);
+        int pw = (int)Math.Round(_contentW * scale);
+        int ph = (int)Math.Round(_contentH * scale);
         GetWindowRect(_hwnd, out var r);
         if (r.Right - r.Left != pw || r.Bottom - r.Top != ph)
             SetWindowPos(_hwnd, IntPtr.Zero, 0, 0, pw, ph,
@@ -626,12 +639,12 @@ public partial class MainWindow : Window
     private void PlaceInitial()
     {
         // 주 모니터 DPI 기준으로 최종 크기를 계산해 위치와 함께 한 번에 적용
-        Root.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        MeasureContent();
         GetDpiForMonitor(MonitorFromPoint(new POINT(), MONITOR_DEFAULTTOPRIMARY),
             0 /*MDT_EFFECTIVE_DPI*/, out uint dpiX, out _);
         double scale = dpiX / 96.0;
-        int pw = (int)Math.Round(Root.DesiredSize.Width * scale);
-        int ph = (int)Math.Round(Root.DesiredSize.Height * scale);
+        int pw = (int)Math.Round(_contentW * scale);
+        int ph = (int)Math.Round(_contentH * scale);
 
         var s = LoadSettings();
         int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -667,11 +680,13 @@ public partial class MainWindow : Window
     // 시작 직후 잠시 동안 목표 rect로 수렴할 때까지 주기적으로 재적용한다.
     private DispatcherTimer? _settler;
     private int _settleStable, _settleTicks;
+    private uint _settleLastDpi;
 
     private void StartSettler()
     {
         _settleStable = 0;
         _settleTicks = 0;
+        _settleLastDpi = 0;
         if (_settler is null)
         {
             _settler = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
@@ -685,10 +700,20 @@ public partial class MainWindow : Window
         _settleTicks++;
         if (_inSizeMove) return;
 
+        // 배치 중 GetDpiForWindow가 96↔실제값으로 잠깐 튀는 사이 잘못된 크기(DIU를
+        // px로 처리한 축소본)로 굳는 경우가 있다. DPI가 직전 틱과 달라지면 수렴
+        // 카운트를 리셋해, DPI가 안정된 뒤 반드시 한 번 더 올바른 크기로 재보정한다.
+        uint dpi = GetDpiForWindow(_hwnd);
+        if (dpi != _settleLastDpi)
+        {
+            _settleStable = 0;
+            _settleLastDpi = dpi;
+        }
+
         GetWindowRect(_hwnd, out var r);
-        double scale = GetDpiForWindow(_hwnd) / 96.0;
-        int pw = (int)Math.Round(Root.DesiredSize.Width * scale);
-        int ph = (int)Math.Round(Root.DesiredSize.Height * scale);
+        double scale = dpi / 96.0;
+        int pw = (int)Math.Round(_contentW * scale);
+        int ph = (int)Math.Round(_contentH * scale);
         bool ok = r.Left == _targetX && r.Top == _targetY &&
                   r.Right - r.Left == pw && r.Bottom - r.Top == ph;
         if (ok)
@@ -701,7 +726,7 @@ public partial class MainWindow : Window
             SetWindowPos(_hwnd, IntPtr.Zero, _targetX, _targetY, pw, ph,
                 SWP_NOZORDER | SWP_NOACTIVATE);
         }
-        if (_settleTicks > 40) _settler!.Stop();
+        if (_settleTicks > 60) _settler!.Stop();
     }
 
     private void ClampToWorkArea()
