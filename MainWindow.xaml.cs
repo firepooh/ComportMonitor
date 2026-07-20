@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using WinForms = System.Windows.Forms;
 
 namespace ComportMonitor;
 
@@ -136,6 +137,14 @@ public partial class MainWindow : Window
     private bool _targetValid;
     private int _dragOffsetX, _dragOffsetY; // 드래그 시작 시 마우스-창 좌상단 오프셋
 
+    // 자동 숨김: 일정 시간 포트 변동이 없으면 숨기고, 변동이 생기면 다시 표시
+    private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(5);
+    private bool _autoHide = true;
+    private bool _hiddenByTimeout;   // 타임아웃으로 숨겨진 상태 (변동 시 자동 재표시 대상)
+    private DateTime _lastActivity = DateTime.Now;
+    private DispatcherTimer? _idleTimer;
+    private WinForms.NotifyIcon? _tray;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -152,6 +161,8 @@ public partial class MainWindow : Window
         BusyMenu.IsChecked = _busyWatch;
         _tint = Math.Clamp(settings?.Tint ?? DefaultTint, MinTint, MaxTint);
         ApplyTint();
+        _autoHide = settings?.AutoHide ?? true;
+        AutoHideMenu.IsChecked = _autoHide;
 
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _debounce.Tick += (_, _) => { _debounce.Stop(); _ = RefreshAsync(); };
@@ -163,6 +174,13 @@ public partial class MainWindow : Window
             PlaceInitial();
             UpdateBusyWatch();
             ApplyTint(); // WPF가 표시 시점에 확장 스타일을 되덮어쓰므로 표시 후 재적용
+
+            // WinForms(NotifyIcon) 초기화는 DPI/좌표 컨텍스트에 영향을 줄 수 있어
+            // 반드시 창 생성·배치가 끝난 뒤에 수행한다
+            InitTray();
+            _idleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            _idleTimer.Tick += (_, _) => IdleTick();
+            _idleTimer.Start();
             // 초기 스폰 위치와 최종 위치의 모니터 DPI가 다르면 WM_DPICHANGED 반영이
             // 끝난 뒤 크기를 한 번 더 맞춘다
             await Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () =>
@@ -320,6 +338,84 @@ public partial class MainWindow : Window
         await ProbeBusyAsync();
     }
 
+    // ── 트레이 아이콘 / 자동 숨김 ─────────────────────────────────
+
+    private void InitTray()
+    {
+        _tray = new WinForms.NotifyIcon { Text = "COM Port Monitor", Visible = true };
+        using (var s = Application.GetResourceStream(
+                   new Uri("pack://application:,,,/ComportMonitor.ico"))!.Stream)
+        {
+            _tray.Icon = new System.Drawing.Icon(s);
+        }
+        _tray.MouseClick += (_, e) =>
+        {
+            if (e.Button == WinForms.MouseButtons.Left) ToggleWidget();
+        };
+        var menu = new WinForms.ContextMenuStrip();
+        menu.Items.Add("표시/숨김", null, (_, _) => ToggleWidget());
+        menu.Items.Add("종료", null, (_, _) => Close());
+        _tray.ContextMenuStrip = menu;
+    }
+
+    /// <summary>포트 변동/사용자 조작 발생 — 유휴 타이머를 리셋하고 필요하면 재표시.</summary>
+    private void MarkActivity()
+    {
+        _lastActivity = DateTime.Now;
+        if (_hiddenByTimeout) ShowWidget();
+    }
+
+    private void IdleTick()
+    {
+        if (!_autoHide || !IsVisible) return;
+        if (IsMouseOver)
+        {
+            _lastActivity = DateTime.Now; // 보고 있는 동안엔 숨기지 않는다
+            return;
+        }
+        if (DateTime.Now - _lastActivity >= IdleTimeout)
+        {
+            _hiddenByTimeout = true;
+            Hide();
+        }
+    }
+
+    private void ToggleWidget()
+    {
+        if (IsVisible)
+        {
+            _hiddenByTimeout = false; // 사용자가 직접 숨김 → 변동에도 자동 재표시 안 함
+            Hide();
+        }
+        else
+        {
+            ShowWidget();
+        }
+    }
+
+    private void ShowWidget()
+    {
+        _hiddenByTimeout = false;
+        _lastActivity = DateTime.Now;
+        Show();
+        // Show() 과정에서 WPF가 캐시된 스타일/크기를 되덮을 수 있어 재적용
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () =>
+        {
+            if (_hwnd == IntPtr.Zero) return;
+            SetWindowLong(_hwnd, GWL_EXSTYLE,
+                GetWindowLong(_hwnd, GWL_EXSTYLE) | WS_EX_TOOLWINDOW);
+            ApplyTint();
+            EnforceSize();
+            ClampToWorkArea();
+        });
+    }
+
+    private void AutoHide_Click(object sender, RoutedEventArgs e)
+    {
+        _autoHide = AutoHideMenu.IsChecked;
+        if (!_autoHide && _hiddenByTimeout) ShowWidget();
+    }
+
     // ── 포트 점유 상태 ────────────────────────────────────────────
 
     private async Task ProbeBusyAsync()
@@ -341,7 +437,11 @@ public partial class MainWindow : Window
                     changed = true;
                 }
             }
-            if (changed) ResizeToContent(); // 배지 표시로 폭이 변할 수 있음
+            if (changed)
+            {
+                ResizeToContent(); // 배지 표시로 폭이 변할 수 있음
+                MarkActivity();    // 점유 시작/종료도 변동으로 간주
+            }
         }
         finally
         {
@@ -379,6 +479,7 @@ public partial class MainWindow : Window
 
     private void ApplyDiff(List<PortEntry> current)
     {
+        bool anyChange = false;
         var found = new HashSet<string>();
         foreach (var entry in current)
         {
@@ -394,6 +495,7 @@ public partial class MainWindow : Window
                 };
                 InsertSorted(info);
                 if (info.Status == PortStatus.Added) FadeAddedLater(info);
+                anyChange = true;
             }
             else
             {
@@ -403,6 +505,7 @@ public partial class MainWindow : Window
                 {
                     existing.Status = PortStatus.Added; // 제거 표시 중 재연결됨
                     FadeAddedLater(existing);
+                    anyChange = true;
                 }
             }
         }
@@ -412,9 +515,14 @@ public partial class MainWindow : Window
         {
             port.Status = PortStatus.Removed;
             RemoveLater(port);
+            anyChange = true;
         }
 
-        if (_initialLoadDone) ResizeToContent();
+        if (_initialLoadDone)
+        {
+            ResizeToContent();
+            if (anyChange) MarkActivity();
+        }
     }
 
     private void InsertSorted(PortInfo info)
@@ -613,6 +721,7 @@ public partial class MainWindow : Window
 
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        MarkActivity();
         if (e.ButtonState == MouseButtonState.Pressed)
         {
             try { DragMove(); } catch (InvalidOperationException) { }
@@ -660,6 +769,7 @@ public partial class MainWindow : Window
 
     private void Window_MouseWheel(object sender, MouseWheelEventArgs e)
     {
+        MarkActivity();
         if (Keyboard.Modifiers != ModifierKeys.Control) return;
         // 휠 위 = 진하게(불투명), 아래 = 투명하게 (0 아래는 전체 페이드 구간)
         _tint = Math.Clamp(_tint + (e.Delta > 0 ? TintStep : -TintStep), MinTint, MaxTint);
@@ -677,7 +787,8 @@ public partial class MainWindow : Window
 
     // ── 창 위치 저장/복원 (물리 픽셀) ─────────────────────────────
 
-    private record WindowSettings(int Left, int Top, bool BusyWatch = true, int Tint = DefaultTint);
+    private record WindowSettings(int Left, int Top, bool BusyWatch = true, int Tint = DefaultTint,
+        bool AutoHide = true);
 
     private static string SettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -697,12 +808,18 @@ public partial class MainWindow : Window
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         base.OnClosing(e);
+        if (_tray is not null)
+        {
+            _tray.Visible = false;
+            _tray.Dispose();
+            _tray = null;
+        }
         try
         {
             GetWindowRect(_hwnd, out var r);
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
             File.WriteAllText(SettingsPath,
-                JsonSerializer.Serialize(new WindowSettings(r.Left, r.Top, _busyWatch, _tint)));
+                JsonSerializer.Serialize(new WindowSettings(r.Left, r.Top, _busyWatch, _tint, _autoHide)));
         }
         catch (Exception) { }
     }

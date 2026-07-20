@@ -36,6 +36,7 @@
                 <MenuItem Header="새로 고침" Click="Refresh_Click"/>
                 <MenuItem x:Name="TopmostMenu" Header="항상 위" IsCheckable="True" IsChecked="True" Click="Topmost_Click"/>
                 <MenuItem x:Name="BusyMenu" Header="점유 상태 표시" IsCheckable="True" IsChecked="True" Click="BusyWatch_Click"/>
+                <MenuItem x:Name="AutoHideMenu" Header="자동 숨김 (5분 무변동)" IsCheckable="True" IsChecked="True" Click="AutoHide_Click"/>
                 <MenuItem Header="투명도 초기화 (Ctrl+휠로 조절)" Click="ResetTint_Click"/>
                 <Separator/>
                 <MenuItem x:Name="VersionMenu" IsEnabled="False" FontSize="11"/>
