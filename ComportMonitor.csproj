@@ -21,4 +21,9 @@
     <Resource Include="ComportMonitor.ico" />
   </ItemGroup>
 
+  <!-- 실행 중인 위젯이 출력 exe를 잠가 빌드가 실패(MSB3027)하지 않도록 빌드 전에 종료 -->
+  <Target Name="KillRunningInstance" BeforeTargets="BeforeBuild" Condition="'$(CI)' == ''">
+    <Exec Command="taskkill /f /im ComportMonitor.exe" IgnoreExitCode="true" ContinueOnError="true" StandardOutputImportance="low" StandardErrorImportance="low" />
+  </Target>
+
 </Project>
