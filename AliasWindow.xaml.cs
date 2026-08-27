@@ -1,7 +1,8 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace ComportMonitor;
 
@@ -41,7 +42,9 @@ public partial class AliasWindow : Window
 
     /// <param name="ports">현재 연결된 포트</param>
     /// <param name="saved">저장된 별칭 (COM 번호 → 별칭). 연결이 끊긴 포트도 유지·편집 가능</param>
-    public AliasWindow(IEnumerable<PortInfo> ports, IReadOnlyDictionary<int, string> saved)
+    /// <param name="focusNumber">지정하면 그 COM 번호의 입력란에 커서를 놓는다</param>
+    public AliasWindow(IEnumerable<PortInfo> ports, IReadOnlyDictionary<int, string> saved,
+        int? focusNumber = null)
     {
         InitializeComponent();
 
@@ -60,6 +63,36 @@ public partial class AliasWindow : Window
         HintText.Text = Entries.Count == 0
             ? "No COM ports connected."
             : "Leave a field empty to remove its alias.";
+
+        if (focusNumber is int fn)
+            Loaded += (_, _) => FocusRow(fn);
+    }
+
+    /// <summary>해당 COM 번호 행의 입력란에 포커스를 주고 기존 값을 선택한다.</summary>
+    private void FocusRow(int number)
+    {
+        var entry = Entries.FirstOrDefault(en => en.Number == number);
+        if (entry is null) return;
+
+        Rows.UpdateLayout();
+        if (Rows.ItemContainerGenerator.ContainerFromItem(entry) is not DependencyObject container)
+            return;
+        if (FindChild<TextBox>(container) is not TextBox box) return;
+
+        box.Focus();
+        box.SelectAll();
+    }
+
+    private static T? FindChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T hit) return hit;
+            if (FindChild<T>(child) is T deep) return deep;
+        }
+        return null;
     }
 
     /// <summary>저장 결과: COM 번호 → 별칭 (빈 값은 제외).</summary>

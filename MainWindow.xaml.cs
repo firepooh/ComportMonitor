@@ -770,13 +770,96 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     // ── 창 이동/메뉴 ──────────────────────────────────────────────
 
+    // 좌클릭은 창 드래그와 포트 메뉴 양쪽에 쓰인다. DragMove()는 버튼을 뗄 때까지
+    // 블록되므로, 호출 전후의 창 위치를 비교해 "안 움직였으면 클릭"으로 판정한다.
+    // (이동 임계값 방식과 달리 드래그 동작을 전혀 건드리지 않는다)
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         MarkActivity();
-        if (e.ButtonState == MouseButtonState.Pressed)
+        if (e.ButtonState != MouseButtonState.Pressed) return;
+
+        var port = FindPortUnder(e.OriginalSource);
+        GetWindowRect(_hwnd, out var before);
+        try { DragMove(); } catch (InvalidOperationException) { }
+        GetWindowRect(_hwnd, out var after);
+
+        bool moved = before.Left != after.Left || before.Top != after.Top;
+        if (!moved && port is not null) ShowPortMenu(port);
+    }
+
+    /// <summary>클릭 지점이 포트 행이면 그 PortInfo를 돌려준다.</summary>
+    private static PortInfo? FindPortUnder(object? source)
+    {
+        var fe = source as FrameworkElement;
+        while (fe is not null)
         {
-            try { DragMove(); } catch (InvalidOperationException) { }
+            if (fe.DataContext is PortInfo port) return port;
+            fe = System.Windows.Media.VisualTreeHelper.GetParent(fe) as FrameworkElement;
         }
+        return null;
+    }
+
+    /// <summary>포트 행 클릭 시 그 포트 전용 메뉴를 띄운다.</summary>
+    private void ShowPortMenu(PortInfo port)
+    {
+        MarkActivity();
+        var menu = new System.Windows.Controls.ContextMenu
+        {
+            PlacementTarget = this,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
+        };
+
+        string Escape(string s) => s.Replace("_", "__"); // '_'는 액세스 키로 먹힘
+
+        menu.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = Escape(port.HasAlias ? $"{port.PortName}  ({port.Alias})" : port.PortName),
+            IsEnabled = false,
+            FontWeight = FontWeights.Bold,
+        });
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        var setAlias = new System.Windows.Controls.MenuItem
+        {
+            Header = port.HasAlias ? "Rename alias..." : "Set alias...",
+        };
+        setAlias.Click += (_, _) => EditAliasFor(port);
+        menu.Items.Add(setAlias);
+
+        if (port.HasAlias)
+        {
+            var remove = new System.Windows.Controls.MenuItem { Header = "Remove alias" };
+            remove.Click += (_, _) => RemoveAlias(port);
+            menu.Items.Add(remove);
+        }
+
+        var change = new System.Windows.Controls.MenuItem { Header = "Change COM number..." };
+        change.Click += (_, _) => OpenDeviceProperties(port);
+        menu.Items.Add(change);
+
+        menu.IsOpen = true;
+    }
+
+    private void EditAliasFor(PortInfo port)
+    {
+        var dlg = new AliasWindow(Ports, _aliases, port.Number) { Owner = this };
+        if (dlg.ShowDialog() != true || dlg.Result is null) return;
+
+        _aliases = dlg.Result;
+        if (!ShowAliases)
+        {
+            ShowAliases = true;
+            AliasMenu.IsChecked = true;
+        }
+        ApplyAliases();
+        SaveSettings();
+    }
+
+    private void RemoveAlias(PortInfo port)
+    {
+        if (!_aliases.Remove(port.Number)) return;
+        ApplyAliases();
+        SaveSettings();
     }
 
     private void Refresh_Click(object sender, RoutedEventArgs e) => _ = RefreshAsync();
@@ -808,28 +891,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     // ── COM 번호 변경 (Windows 장치 속성 창 위임) ─────────────────
-
-    /// <summary>메뉴가 열릴 때 "Change COM number" 하위 항목을 현재 포트로 채운다.</summary>
-    private void ContextMenu_Opened(object sender, RoutedEventArgs e)
-    {
-        ChangeNumberMenu.Items.Clear();
-        var live = Ports.Where(p => p.Status != PortStatus.Removed).ToList();
-        ChangeNumberMenu.IsEnabled = live.Count > 0;
-
-        foreach (var port in live)
-        {
-            var label = port.HasAlias ? $"{port.PortName} ({port.Alias})..." : $"{port.PortName}...";
-            var item = new System.Windows.Controls.MenuItem
-            {
-                // MenuItem Header에서 '_'는 액세스 키로 먹히므로 이스케이프
-                Header = label.Replace("_", "__"),
-                Tag = port,
-            };
-            item.Click += (s, _) =>
-                OpenDeviceProperties((PortInfo)((System.Windows.Controls.MenuItem)s!).Tag);
-            ChangeNumberMenu.Items.Add(item);
-        }
-    }
 
     /// <summary>
     /// 해당 장치의 Windows 속성 창을 연다 (포트 설정 → 고급 → COM 포트 번호).

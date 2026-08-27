@@ -36,7 +36,7 @@
             MinWidth="250">
 
         <Border.ContextMenu>
-            <ContextMenu Opened="ContextMenu_Opened">
+            <ContextMenu>
                 <MenuItem Header="Refresh" Click="Refresh_Click"/>
                 <MenuItem x:Name="TopmostMenu" Header="Always on top" IsCheckable="True" IsChecked="True" Click="Topmost_Click"/>
                 <MenuItem x:Name="BusyMenu" Header="Detect port usage" IsCheckable="True" IsChecked="True" Click="BusyWatch_Click"/>
@@ -44,8 +44,6 @@
                 <Separator/>
                 <MenuItem x:Name="AliasMenu" Header="Show aliases" IsCheckable="True" IsChecked="True" Click="ShowAliases_Click"/>
                 <MenuItem Header="Set aliases..." Click="EditAliases_Click"/>
-                <!-- 항목은 ContextMenu_Opened에서 현재 포트로 채운다 -->
-                <MenuItem x:Name="ChangeNumberMenu" Header="Change COM number"/>
                 <Separator/>
                 <MenuItem Header="Reset opacity (Ctrl+Wheel)" Click="ResetTint_Click"/>
                 <Separator/>
@@ -69,8 +67,21 @@
             <ItemsControl x:Name="PortList" ItemsSource="{Binding Ports}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="{x:Type local:PortInfo}">
-                        <StackPanel Orientation="Horizontal" Margin="0,3"
-                                    ToolTip="{Binding Tooltip}">
+                      <!-- 행 전체가 클릭 대상: hover 하이라이트로 클릭 가능함을 알린다 -->
+                      <Border Padding="5,2" Margin="-5,1,-5,1" CornerRadius="4"
+                              Cursor="Hand" ToolTip="{Binding Tooltip}">
+                        <Border.Style>
+                            <!-- Background를 로컬 값으로 두면 트리거가 이기지 못하므로 Setter로 -->
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#1FFFFFFF"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel Orientation="Horizontal">
                             <Ellipse x:Name="StatusDot" Width="8" Height="8"
                                      Fill="#64748B" VerticalAlignment="Center"/>
                             <TextBlock x:Name="PortNameText"
@@ -100,6 +111,7 @@
                                        Margin="10,0,0,0" VerticalAlignment="Center"
                                        MaxWidth="260" TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
+                      </Border>
                         <DataTemplate.Triggers>
                             <!-- 사용 중: 점만 초록(지속). 등장/제거(4초 한시)가 뒤 트리거로 우선 -->
                             <DataTrigger Binding="{Binding IsBusy}" Value="True">
