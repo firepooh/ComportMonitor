@@ -27,6 +27,10 @@
                       ResizeBorderThickness="0" CornerRadius="0"/>
     </WindowChrome.WindowChrome>
 
+    <Window.Resources>
+        <local:AliasVisibilityConverter x:Key="AliasVisibility"/>
+    </Window.Resources>
+
     <Border x:Name="Root"
             Padding="16,12,16,14"
             MinWidth="250">
@@ -37,6 +41,10 @@
                 <MenuItem x:Name="TopmostMenu" Header="Always on top" IsCheckable="True" IsChecked="True" Click="Topmost_Click"/>
                 <MenuItem x:Name="BusyMenu" Header="Detect port usage" IsCheckable="True" IsChecked="True" Click="BusyWatch_Click"/>
                 <MenuItem x:Name="AutoHideMenu" Header="Auto-hide (after 5 min idle)" IsCheckable="True" IsChecked="True" Click="AutoHide_Click"/>
+                <Separator/>
+                <MenuItem x:Name="AliasMenu" Header="Show aliases" IsCheckable="True" IsChecked="True" Click="ShowAliases_Click"/>
+                <MenuItem Header="Set aliases..." Click="EditAliases_Click"/>
+                <Separator/>
                 <MenuItem Header="Reset opacity (Ctrl+Wheel)" Click="ResetTint_Click"/>
                 <Separator/>
                 <MenuItem x:Name="VersionMenu" IsEnabled="False" FontSize="11"/>
@@ -68,6 +76,22 @@
                                        Foreground="White" FontFamily="Consolas"
                                        FontSize="14" FontWeight="Bold"
                                        Margin="9,0,0,0" VerticalAlignment="Center"/>
+                            <!-- 별칭 pill: 별칭이 있고 표시 옵션이 켜져 있을 때만 -->
+                            <Border x:Name="AliasPill"
+                                    Background="#2A7DD3FC" CornerRadius="4"
+                                    Padding="6,1" Margin="8,0,0,0"
+                                    VerticalAlignment="Center">
+                                <Border.Visibility>
+                                    <MultiBinding Converter="{StaticResource AliasVisibility}">
+                                        <Binding Path="HasAlias"/>
+                                        <Binding Path="DataContext.ShowAliases"
+                                                 RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                    </MultiBinding>
+                                </Border.Visibility>
+                                <TextBlock Text="{Binding Alias}" Foreground="#7DD3FC"
+                                           FontSize="11" FontWeight="Bold"
+                                           MaxWidth="120" TextTrimming="CharacterEllipsis"/>
+                            </Border>
                             <TextBlock x:Name="DescText"
                                        Text="{Binding Description}"
                                        Foreground="#B8C0CC" FontSize="12"

@@ -12,7 +12,7 @@ using WinForms = System.Windows.Forms;
 
 namespace ComportMonitor;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyChanged
 {
     private const int WM_DEVICECHANGE = 0x0219;
     private const int WM_WINDOWPOSCHANGING = 0x0046;
@@ -145,6 +145,23 @@ public partial class MainWindow : Window
     private DispatcherTimer? _idleTimer;
     private WinForms.NotifyIcon? _tray;
 
+    // 포트 별칭: COM 번호 → 별칭. 포트가 빠졌다 다시 꽂혀도 번호로 다시 매칭된다.
+    private Dictionary<int, string> _aliases = new();
+
+    private bool _showAliases = true;
+    public bool ShowAliases
+    {
+        get => _showAliases;
+        set
+        {
+            if (_showAliases == value) return;
+            _showAliases = value;
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(ShowAliases)));
+        }
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -163,6 +180,9 @@ public partial class MainWindow : Window
         ApplyTint();
         _autoHide = settings?.AutoHide ?? true;
         AutoHideMenu.IsChecked = _autoHide;
+        _aliases = settings?.Aliases ?? new Dictionary<int, string>();
+        ShowAliases = settings?.ShowAliases ?? true;
+        AliasMenu.IsChecked = ShowAliases;
 
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _debounce.Tick += (_, _) => { _debounce.Stop(); _ = RefreshAsync(); };
@@ -492,6 +512,7 @@ public partial class MainWindow : Window
                     Description = entry.Description,
                     PnpId = entry.PnpId,
                     Status = _initialLoadDone ? PortStatus.Added : PortStatus.Normal,
+                    Alias = _aliases.TryGetValue(entry.Number, out var al) ? al : "",
                 };
                 InsertSorted(info);
                 if (info.Status == PortStatus.Added) FadeAddedLater(info);
@@ -767,6 +788,40 @@ public partial class MainWindow : Window
         UpdateBusyWatch();
     }
 
+    // ── 포트 별칭 ─────────────────────────────────────────────────
+
+    /// <summary>저장된 별칭을 현재 목록에 반영한다 (COM 번호로 매칭).</summary>
+    private void ApplyAliases()
+    {
+        foreach (var port in Ports)
+            port.Alias = _aliases.TryGetValue(port.Number, out var a) ? a : "";
+        ResizeToContent(); // pill 유무로 폭이 변한다
+    }
+
+    private void ShowAliases_Click(object sender, RoutedEventArgs e)
+    {
+        ShowAliases = AliasMenu.IsChecked;
+        MarkActivity();
+        // 바인딩 갱신 후 폭 재계산
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => ResizeToContent());
+    }
+
+    private void EditAliases_Click(object sender, RoutedEventArgs e)
+    {
+        MarkActivity();
+        var dlg = new AliasWindow(Ports, _aliases) { Owner = this };
+        if (dlg.ShowDialog() != true || dlg.Result is null) return;
+
+        _aliases = dlg.Result;
+        if (!ShowAliases) // 별칭을 지정했으면 표시도 켜준다
+        {
+            ShowAliases = true;
+            AliasMenu.IsChecked = true;
+        }
+        ApplyAliases();
+        SaveSettings();
+    }
+
     // ── 투명도(틴트) 조절 ─────────────────────────────────────────
 
     private void ApplyTint()
@@ -817,7 +872,7 @@ public partial class MainWindow : Window
     // ── 창 위치 저장/복원 (물리 픽셀) ─────────────────────────────
 
     private record WindowSettings(int Left, int Top, bool BusyWatch = true, int Tint = DefaultTint,
-        bool AutoHide = true);
+        bool AutoHide = true, bool ShowAliases = true, Dictionary<int, string>? Aliases = null);
 
     private static string SettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -843,12 +898,18 @@ public partial class MainWindow : Window
             _tray.Dispose();
             _tray = null;
         }
+        SaveSettings();
+    }
+
+    private void SaveSettings()
+    {
         try
         {
             GetWindowRect(_hwnd, out var r);
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-            File.WriteAllText(SettingsPath,
-                JsonSerializer.Serialize(new WindowSettings(r.Left, r.Top, _busyWatch, _tint, _autoHide)));
+            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(
+                new WindowSettings(r.Left, r.Top, _busyWatch, _tint, _autoHide,
+                    ShowAliases, _aliases)));
         }
         catch (Exception) { }
     }

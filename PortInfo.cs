@@ -49,8 +49,26 @@ public class PortInfo : INotifyPropertyChanged
         set { if (SetField(ref _isBusy, value)) OnPropertyChanged(nameof(Tooltip)); }
     }
 
+    /// <summary>사용자가 지정한 별칭 (COM 번호에 매칭). 빈 문자열이면 없음.</summary>
+    private string _alias = "";
+    public string Alias
+    {
+        get => _alias;
+        set
+        {
+            if (SetField(ref _alias, value ?? ""))
+            {
+                OnPropertyChanged(nameof(HasAlias));
+                OnPropertyChanged(nameof(Tooltip));
+            }
+        }
+    }
+
+    public bool HasAlias => !string.IsNullOrWhiteSpace(Alias);
+
     /// <summary>행 hover 툴팁: 사용 중이면 "In use — " 접두. (배지 대체)</summary>
-    public string Tooltip => IsBusy ? $"In use — {PnpId}" : PnpId;
+    public string Tooltip =>
+        (IsBusy ? "In use — " : "") + (HasAlias ? $"{Alias} — " : "") + PnpId;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
