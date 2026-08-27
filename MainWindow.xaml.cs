@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -804,6 +805,77 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         MarkActivity();
         // 바인딩 갱신 후 폭 재계산
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => ResizeToContent());
+    }
+
+    // ── COM 번호 변경 (Windows 장치 속성 창 위임) ─────────────────
+
+    /// <summary>메뉴가 열릴 때 "Change COM number" 하위 항목을 현재 포트로 채운다.</summary>
+    private void ContextMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        ChangeNumberMenu.Items.Clear();
+        var live = Ports.Where(p => p.Status != PortStatus.Removed).ToList();
+        ChangeNumberMenu.IsEnabled = live.Count > 0;
+
+        foreach (var port in live)
+        {
+            var label = port.HasAlias ? $"{port.PortName} ({port.Alias})..." : $"{port.PortName}...";
+            var item = new System.Windows.Controls.MenuItem
+            {
+                // MenuItem Header에서 '_'는 액세스 키로 먹히므로 이스케이프
+                Header = label.Replace("_", "__"),
+                Tag = port,
+            };
+            item.Click += (s, _) =>
+                OpenDeviceProperties((PortInfo)((System.Windows.Controls.MenuItem)s!).Tag);
+            ChangeNumberMenu.Items.Add(item);
+        }
+    }
+
+    /// <summary>
+    /// 해당 장치의 Windows 속성 창을 연다 (포트 설정 → 고급 → COM 포트 번호).
+    /// 레지스트리를 직접 건드리지 않으므로 관리자 권한이 필요 없고, 번호 변경은
+    /// Windows가 처리한다. 창이 닫히면 목록을 갱신하고 별칭을 새 번호로 옮긴다.
+    /// </summary>
+    private async void OpenDeviceProperties(PortInfo port)
+    {
+        MarkActivity();
+        if (string.IsNullOrEmpty(port.PnpId)) return;
+
+        string pnpId = port.PnpId;
+        int oldNumber = port.Number;
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "rundll32.exe",
+                Arguments = $"devmgr.dll,DeviceProperties_RunDLL /DeviceID \"{pnpId}\"",
+                UseShellExecute = true,
+            };
+            using var proc = Process.Start(psi);
+            if (proc is null) return;
+            await proc.WaitForExitAsync();
+        }
+        catch (Exception)
+        {
+            return; // 창을 못 열어도 위젯 동작에는 영향 없음
+        }
+
+        await RefreshAsync();
+        MigrateAlias(pnpId, oldNumber);
+        MarkActivity();
+    }
+
+    /// <summary>같은 장치가 다른 COM 번호를 받았으면 별칭도 새 번호로 옮긴다.</summary>
+    private void MigrateAlias(string pnpId, int oldNumber)
+    {
+        var moved = Ports.FirstOrDefault(p => p.PnpId == pnpId && p.Status != PortStatus.Removed);
+        if (moved is null || moved.Number == oldNumber) return;
+        if (!_aliases.TryGetValue(oldNumber, out var alias)) return;
+
+        _aliases.Remove(oldNumber);
+        _aliases[moved.Number] = alias;
+        ApplyAliases();
+        SaveSettings();
     }
 
     private void EditAliases_Click(object sender, RoutedEventArgs e)

@@ -36,7 +36,7 @@
             MinWidth="250">
 
         <Border.ContextMenu>
-            <ContextMenu>
+            <ContextMenu Opened="ContextMenu_Opened">
                 <MenuItem Header="Refresh" Click="Refresh_Click"/>
                 <MenuItem x:Name="TopmostMenu" Header="Always on top" IsCheckable="True" IsChecked="True" Click="Topmost_Click"/>
                 <MenuItem x:Name="BusyMenu" Header="Detect port usage" IsCheckable="True" IsChecked="True" Click="BusyWatch_Click"/>
@@ -44,6 +44,8 @@
                 <Separator/>
                 <MenuItem x:Name="AliasMenu" Header="Show aliases" IsCheckable="True" IsChecked="True" Click="ShowAliases_Click"/>
                 <MenuItem Header="Set aliases..." Click="EditAliases_Click"/>
+                <!-- 항목은 ContextMenu_Opened에서 현재 포트로 채운다 -->
+                <MenuItem x:Name="ChangeNumberMenu" Header="Change COM number"/>
                 <Separator/>
                 <MenuItem Header="Reset opacity (Ctrl+Wheel)" Click="ResetTint_Click"/>
                 <Separator/>
