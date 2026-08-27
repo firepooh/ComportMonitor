@@ -22,7 +22,7 @@ A translucent **COM port monitor widget** that floats on your Windows desktop. S
 - **Device names** — the same friendly name as Device Manager (e.g. `Silicon Labs CP210x USB to UART Bridge`), with VID/PID in the tooltip
 - **Opacity control** — one axis from solid panel ↔ acrylic blur ↔ ghost mode (text fades too)
 - **Edge magnet snap** — snaps to monitor edges while dragging
-- **Auto-hide** — hides after 5 minutes with no port activity, reappears on the next change (optional)
+- **Auto-hide** — hides after 5 minutes with no port activity, reappears on the next change (optional). While hidden it also returns its memory to the OS
 - **Tray icon** — left-click to show/hide, right-click menu to exit
 - **Widget UX** — always on top, hidden from taskbar/Alt-Tab, drag to move, position & settings saved automatically
 
