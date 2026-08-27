@@ -33,7 +33,7 @@
 
     <Border x:Name="Root"
             Padding="16,12,16,14"
-            MinWidth="250">
+            MinWidth="440">
 
         <Border.ContextMenu>
             <ContextMenu>
