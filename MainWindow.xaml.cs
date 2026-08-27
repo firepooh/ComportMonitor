@@ -39,6 +39,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hWnd, int attr, ref int value, int size);
+    [DllImport("psapi.dll")]
+    private static extern bool EmptyWorkingSet(IntPtr hProcess);
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
     [DllImport("user32.dll")]
@@ -397,8 +401,22 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (DateTime.Now - _lastActivity >= IdleTimeout)
         {
             _hiddenByTimeout = true;
-            Hide();
+            HideWidget();
         }
+    }
+
+    /// <summary>
+    /// 창을 숨기고 물리 메모리(작업 집합)를 운영체제에 돌려준다. 숨어 있는 동안
+    /// 실제 점유가 줄고, 다시 표시될 때 필요한 페이지만 되읽어 온다.
+    /// </summary>
+    private void HideWidget()
+    {
+        Hide();
+        // 숨김에 따른 WPF 정리가 끝난 뒤 트림해야 반환분이 유지된다
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
+        {
+            try { EmptyWorkingSet(GetCurrentProcess()); } catch (Exception) { }
+        });
     }
 
     private void ToggleWidget()
@@ -406,7 +424,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (IsVisible)
         {
             _hiddenByTimeout = false; // 사용자가 직접 숨김 → 변동에도 자동 재표시 안 함
-            Hide();
+            HideWidget();
         }
         else
         {
