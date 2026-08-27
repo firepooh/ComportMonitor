@@ -17,6 +17,7 @@ A translucent **COM port monitor widget** that floats on your Windows desktop. S
 - **Live list** — updates the instant a USB device is plugged or unplugged (`WM_DEVICECHANGE` events, no polling)
 - **Connect/disconnect highlight** — new ports flash 🟠 amber, removed ports show a 🔴 red strikethrough for 4 seconds
 - **In-use detection** — ports held by another program (terminal, flasher, etc.) show a 🟢 green dot (with an `In use` tooltip on hover; checked every 3 s, toggleable from the right-click menu)
+- **Port aliases** — label each port with a name like `master` or `slave1` (see below)
 - **Device names** — the same friendly name as Device Manager (e.g. `Silicon Labs CP210x USB to UART Bridge`), with VID/PID in the tooltip
 - **Opacity control** — one axis from solid panel ↔ acrylic blur ↔ ghost mode (text fades too)
 - **Edge magnet snap** — snaps to monitor edges while dragging
@@ -24,12 +25,27 @@ A translucent **COM port monitor widget** that floats on your Windows desktop. S
 - **Tray icon** — left-click to show/hide, right-click menu to exit
 - **Widget UX** — always on top, hidden from taskbar/Alt-Tab, drag to move, position & settings saved automatically
 
+## Port aliases
+
+When COM numbers alone don't tell you which board is which, give each port a name.
+
+![aliases](docs/screenshot-alias.png)
+
+Right-click → **Set aliases...** to edit them, and **Show aliases** to toggle the display.
+
+![alias editor](docs/alias-dialog.png)
+
+- Aliases are keyed by **COM number**, so they survive unplugging the board or rebooting the PC
+- Ports that aren't currently connected (`(not connected)`) can still be labelled ahead of time or cleared
+- Clear a field and save to remove that alias
+
 ## Controls
 
 | Action | How |
 |---|---|
 | Move | Drag the widget (snaps near monitor edges) |
 | Opacity | **Ctrl + mouse wheel** over the widget (up = more solid, down = more transparent) |
+| Set / toggle aliases | **Right-click** → `Set aliases...` / `Show aliases` |
 | Refresh / options / exit | **Right-click** context menu |
 
 Settings are stored in `%APPDATA%\ComportMonitor\settings.json`.
