@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>ComportMonitor</RootNamespace>
     <AssemblyName>ComportMonitor</AssemblyName>
-    <Version>1.1.1</Version>
+    <Version>1.2.0</Version>
     <ApplicationIcon>ComportMonitor.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- WFAC010은 WinForms 앱에 SetHighDpiMode를 권하는 경고다. 이 앱은 WPF라 DPI 인식을
