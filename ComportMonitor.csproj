@@ -12,6 +12,9 @@
     <Version>1.1.1</Version>
     <ApplicationIcon>ComportMonitor.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- WFAC010은 WinForms 앱에 SetHighDpiMode를 권하는 경고다. 이 앱은 WPF라 DPI 인식을
+         매니페스트로 선언해야 하므로 끈다 (WinForms는 트레이 아이콘에만 쓴다). -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

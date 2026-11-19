@@ -1,3 +1,4 @@
+using Microsoft.Win32;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
@@ -23,6 +24,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private const int SnapDistance = 20; // 자석 스냅 감지 거리 (DIU, DPI 배율 적용)
     private const int WM_DPICHANGED = 0x02E0;
     private const int WM_STYLECHANGING = 0x007C;
+    private const int WM_HOTKEY = 0x0312;
+    private const int HotkeyId = 0xC0A1;
+    private const uint MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_SHIFT = 0x4, MOD_NOREPEAT = 0x4000;
+    private const uint VK_C = 0x43;
+    private const string HotkeyText = "Ctrl+Alt+Shift+C";
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
@@ -64,6 +70,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private static extern bool GetCursorPos(out POINT pt);
     [DllImport("shcore.dll")]
     private static extern int GetDpiForMonitor(IntPtr hMonitor, int type, out uint dpiX, out uint dpiY);
+    [DllImport("user32.dll")]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint modifiers, uint vk);
+    [DllImport("user32.dll")]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int X, Y; }
@@ -153,6 +163,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     // 포트 별칭: COM 번호 → 별칭. 포트가 빠졌다 다시 꽂혀도 번호로 다시 매칭된다.
     private Dictionary<int, string> _aliases = new();
 
+    // 설정은 바뀔 때마다 잠시 모았다가 바로 저장한다. Windows 종료·로그오프 때는
+    // 창의 Closing 이벤트가 오지 않아, 종료할 때만 저장하면 그동안의 변경이 사라진다.
+    private readonly DispatcherTimer _saveTimer;
+    private bool _hotkeyRegistered;
+    private bool _notify;               // 연결·해제 알림 (기본 끔)
+    private string? _terminalCommand;   // "Open in terminal" 명령. null이면 자동 감지
+
     private bool _showAliases = true;
     public bool ShowAliases
     {
@@ -188,6 +205,21 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _aliases = settings?.Aliases ?? new Dictionary<int, string>();
         ShowAliases = settings?.ShowAliases ?? true;
         AliasMenu.IsChecked = ShowAliases;
+        Topmost = settings?.Topmost ?? true;
+        TopmostMenu.IsChecked = Topmost;
+        _notify = settings?.Notify ?? false;
+        NotifyMenu.IsChecked = _notify;
+        _terminalCommand = settings?.TerminalCommand;
+        AutoStartMenu.IsChecked = IsAutoStartEnabled();
+
+        _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _saveTimer.Tick += (_, _) =>
+        {
+            _saveTimer.Stop();
+            SaveSettings();
+        };
+        // Windows 종료·로그오프 때는 Closing이 오지 않으므로 여기서 저장한다
+        Application.Current.SessionEnding += (_, _) => FlushSettings();
 
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _debounce.Tick += (_, _) => { _debounce.Stop(); _ = RefreshAsync(); };
@@ -224,6 +256,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         source.AddHook(WndProc);
         _subclassProc = SubclassProc;
         SetWindowSubclass(_hwnd, _subclassProc, (UIntPtr)1, UIntPtr.Zero);
+        // 위젯이 숨어 있어도 단축키로 불러올 수 있게 한다 (다른 앱이 이미 쓰면 등록 실패 → 생략)
+        _hotkeyRegistered = RegisterHotKey(_hwnd, HotkeyId,
+            MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, VK_C);
         // Alt+Tab 목록에서 숨김
         SetWindowLong(_hwnd, GWL_EXSTYLE,
             GetWindowLong(_hwnd, GWL_EXSTYLE) | WS_EX_TOOLWINDOW);
@@ -233,7 +268,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         int dark = 1;
         DwmSetWindowAttribute(_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
         int backdrop = DWMSBT_TRANSIENTWINDOW;
-        DwmSetWindowAttribute(_hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
+        int hr = DwmSetWindowAttribute(_hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
+        // 아크릴 백드롭은 Windows 11 22H2 이상에서만 된다. 지원하지 않으면 투명 배경이
+        // 검게 나오므로 단색 배경으로 바꾼다 (검증용으로 환경 변수로도 강제할 수 있다).
+        if (hr != 0 || Environment.GetEnvironmentVariable("COMPORTMONITOR_SOLID_BG") == "1")
+            Background = new SolidColorBrush(Color.FromRgb(0x17, 0x1B, 0x24));
         ApplyTint(); // 저장된 값이 페이드 구간(음수)이면 레이어드 알파 적용
         // 표시되기 전에 대략적 크기로 목표 위치에 배치 (Loaded에서 실측치로 재배치)
         PlaceInitial();
@@ -259,7 +298,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (msg == WM_DEVICECHANGE)
+        if (msg == WM_HOTKEY && wParam.ToInt64() == HotkeyId)
+        {
+            ToggleWidget();
+            handled = true;
+        }
+        else if (msg == WM_DEVICECHANGE)
         {
             // 장치 하나에도 메시지가 연달아 오므로 디바운스 후 1회만 재열거
             _debounce.Stop();
@@ -282,6 +326,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             _targetX = r.Left;
             _targetY = r.Top;
             _targetValid = true;
+            RequestSave(); // 옮긴 위치를 바로 저장한다
         }
         else if (msg == WM_MOVING && _inSizeMove)
         {
@@ -353,6 +398,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         {
             var current = await Task.Run(SerialPortEnumerator.Enumerate);
             if (current is null) return; // WMI 오류 시 이전 상태 유지
+#if DEBUG
+            AddFakePort(current);
+#endif
             ApplyDiff(current);
             _initialLoadDone = true;
         }
@@ -367,7 +415,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     private void InitTray()
     {
-        _tray = new WinForms.NotifyIcon { Text = "COM Port Monitor", Visible = true };
+        _tray = new WinForms.NotifyIcon
+        {
+            Text = _hotkeyRegistered ? $"COM Port Monitor ({HotkeyText})" : "COM Port Monitor",
+            Visible = true,
+        };
         using (var s = Application.GetResourceStream(
                    new Uri("pack://application:,,,/ComportMonitor.ico"))!.Stream)
         {
@@ -378,7 +430,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             if (e.Button == WinForms.MouseButtons.Left) ToggleWidget();
         };
         var menu = new WinForms.ContextMenuStrip();
-        menu.Items.Add("Show / Hide", null, (_, _) => ToggleWidget());
+        menu.Items.Add(_hotkeyRegistered ? $"Show / Hide    {HotkeyText}" : "Show / Hide",
+            null, (_, _) => ToggleWidget());
         menu.Items.Add("Exit", null, (_, _) => Close());
         _tray.ContextMenuStrip = menu;
     }
@@ -449,10 +502,23 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         });
     }
 
+    /// <summary>두 번째 실행에서 호출된다. 숨어 있으면 다시 띄우고, 떠 있으면 앞으로 가져온다.</summary>
+    public void ShowFromOtherInstance()
+    {
+        if (!IsVisible)
+        {
+            ShowWidget();
+            return;
+        }
+        MarkActivity();
+        Activate();
+    }
+
     private void AutoHide_Click(object sender, RoutedEventArgs e)
     {
         _autoHide = AutoHideMenu.IsChecked;
         if (!_autoHide && _hiddenByTimeout) ShowWidget();
+        RequestSave();
     }
 
     // ── 포트 점유 상태 ────────────────────────────────────────────
@@ -467,20 +533,23 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                              .Select(p => p.PortName).ToList();
             if (names.Count == 0) return;
             var busy = await Task.Run(() => names.ToDictionary(n => n, PortProbe.IsBusy));
-            bool changed = false;
+            bool changed = false, newlyBusy = false;
             foreach (var port in Ports)
             {
                 if (busy.TryGetValue(port.PortName, out var b) && port.IsBusy != b)
                 {
                     port.IsBusy = b;
+                    if (b) newlyBusy = true;
+                    else port.Owner = "";
                     changed = true;
                 }
             }
             if (changed)
             {
-                ResizeToContent(); // 배지 표시로 폭이 변할 수 있음
+                ResizeToContent();
                 MarkActivity();    // 점유 시작/종료도 변동으로 간주
             }
+            if (newlyBusy) LookupOwners(); // 누가 열었는지는 백그라운드에서 찾는다
         }
         finally
         {
@@ -509,6 +578,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 if (port.IsBusy)
                 {
                     port.IsBusy = false;
+                    port.Owner = "";
                     changed = true;
                 }
             }
@@ -519,6 +589,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private void ApplyDiff(List<PortEntry> current)
     {
         bool anyChange = false;
+        var added = new List<PortInfo>();
+        var removed = new List<PortInfo>();
         var found = new HashSet<string>();
         foreach (var entry in current)
         {
@@ -534,7 +606,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                     Alias = _aliases.TryGetValue(entry.Number, out var al) ? al : "",
                 };
                 InsertSorted(info);
-                if (info.Status == PortStatus.Added) FadeAddedLater(info);
+                if (info.Status == PortStatus.Added)
+                {
+                    FadeAddedLater(info);
+                    added.Add(info);
+                }
                 anyChange = true;
             }
             else
@@ -545,6 +621,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 {
                     existing.Status = PortStatus.Added; // 제거 표시 중 재연결됨
                     FadeAddedLater(existing);
+                    added.Add(existing);
                     anyChange = true;
                 }
             }
@@ -555,6 +632,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         {
             port.Status = PortStatus.Removed;
             RemoveLater(port);
+            removed.Add(port);
             anyChange = true;
         }
 
@@ -562,6 +640,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         {
             ResizeToContent();
             if (anyChange) MarkActivity();
+            if (_notify && (added.Count > 0 || removed.Count > 0)) NotifyPortChanges(added, removed);
         }
     }
 
@@ -835,6 +914,28 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             IsEnabled = false,
             FontWeight = FontWeights.Bold,
         });
+        if (port.IsBusy)
+        {
+            // 점유 프로세스는 메뉴가 열린 뒤에 찾아지면 바로 바뀌도록 바인딩한다.
+            // 머리글을 TextBlock으로 두면 프로세스 이름의 '_'가 단축키 표시로 먹히지 않는다.
+            var busyText = new System.Windows.Controls.TextBlock();
+            busyText.SetBinding(System.Windows.Controls.TextBlock.TextProperty,
+                new System.Windows.Data.Binding(nameof(PortInfo.BusyText)) { Source = port });
+            var busyItem = new System.Windows.Controls.MenuItem { Header = busyText, IsEnabled = false };
+            busyItem.SetBinding(System.Windows.Automation.AutomationProperties.NameProperty,
+                new System.Windows.Data.Binding(nameof(PortInfo.BusyText)) { Source = port });
+            menu.Items.Add(busyItem);
+            LookupOwners();
+        }
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        var copy = new System.Windows.Controls.MenuItem { Header = Escape($"Copy \"{port.PortName}\"") };
+        copy.Click += (_, _) => CopyPortName(port);
+        menu.Items.Add(copy);
+
+        var terminal = new System.Windows.Controls.MenuItem { Header = "Open in terminal" };
+        terminal.Click += (_, _) => OpenTerminal(port);
+        menu.Items.Add(terminal);
         menu.Items.Add(new System.Windows.Controls.Separator());
 
         var setAlias = new System.Windows.Controls.MenuItem
@@ -880,14 +981,203 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         SaveSettings();
     }
 
+    // ── 포트 메뉴 동작 ────────────────────────────────────────────
+
+    private static void CopyPortName(PortInfo port)
+    {
+        // 다른 앱이 클립보드를 잡고 있으면 실패할 수 있어 몇 번 다시 시도한다
+        for (int i = 0; i < 5; i++)
+        {
+            try
+            {
+                Clipboard.SetText(port.PortName);
+                return;
+            }
+            catch (COMException)
+            {
+                Thread.Sleep(50);
+            }
+        }
+    }
+
+    private void OpenTerminal(PortInfo port)
+    {
+        MarkActivity();
+        var command = _terminalCommand ?? Terminal.Detect();
+        if (command is null)
+        {
+            // 쓸 터미널이 없으면 명령을 먼저 정하게 한다
+            TerminalCommand_Click(this, new RoutedEventArgs());
+            command = _terminalCommand;
+            if (command is null) return;
+        }
+        try
+        {
+            Terminal.Launch(command, port);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Couldn't start the terminal.\n\n{command}\n\n{ex.Message}",
+                "COM Port Monitor", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void TerminalCommand_Click(object sender, RoutedEventArgs e)
+    {
+        MarkActivity();
+        var dlg = new TerminalWindow(_terminalCommand) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        _terminalCommand = dlg.Result;
+        RequestSave();
+    }
+
+    private void Reserved_Click(object sender, RoutedEventArgs e)
+    {
+        MarkActivity();
+        new ReservedWindow { Owner = this }.ShowDialog();
+    }
+
+    // ── 점유 프로세스 찾기 ────────────────────────────────────────
+
+    private bool _ownerLookupRunning, _ownerLookupPending;
+
+    /// <summary>사용 중인 포트를 연 프로세스를 백그라운드에서 찾아 PortInfo.Owner에 넣는다.</summary>
+    private async void LookupOwners()
+    {
+        if (_ownerLookupRunning)
+        {
+            _ownerLookupPending = true;
+            return;
+        }
+        _ownerLookupRunning = true;
+        try
+        {
+            do
+            {
+                _ownerLookupPending = false;
+                var busy = Ports.Where(p => p.IsBusy).Select(p => p.PortName).ToList();
+                if (busy.Count == 0) break;
+                var owners = await Task.Run(() => PortOwnerFinder.Find(busy));
+                foreach (var port in Ports)
+                    if (port.IsBusy)
+                        port.Owner = owners.TryGetValue(port.PortName, out var o) ? o.ToString() : "";
+            } while (_ownerLookupPending);
+        }
+        catch (Exception) { }
+        finally
+        {
+            _ownerLookupRunning = false;
+        }
+    }
+
+    // ── 연결·해제 알림 ────────────────────────────────────────────
+
+    private void Notify_Click(object sender, RoutedEventArgs e)
+    {
+        _notify = NotifyMenu.IsChecked;
+        RequestSave();
+    }
+
+    private void NotifyPortChanges(List<PortInfo> added, List<PortInfo> removed)
+    {
+        if (_tray is null) return;
+        static string Name(PortInfo p) => p.HasAlias ? $"{p.PortName} ({p.Alias})" : p.PortName;
+        string title, text;
+        if (added.Count + removed.Count == 1)
+        {
+            var p = added.Count == 1 ? added[0] : removed[0];
+            title = $"{Name(p)} {(added.Count == 1 ? "connected" : "disconnected")}";
+            text = p.Description.Length > 0 ? p.Description : p.PortName;
+        }
+        else
+        {
+            title = "COM ports changed";
+            text = string.Join("\n", added.Select(p => $"+ {Name(p)}")
+                .Concat(removed.Select(p => $"- {Name(p)}")).Take(6));
+        }
+        _tray.ShowBalloonTip(5000, Truncate(title, 63), Truncate(text, 255), WinForms.ToolTipIcon.None);
+    }
+
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..(max - 1)] + "…";
+
+    // ── Windows 시작 시 자동 실행 (HKCU Run 키, 관리자 권한 불필요) ──
+
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string RunValueName = "ComportMonitor";
+
+    /// <summary>
+    /// 지금 실행 중인 exe가 등록돼 있을 때만 true. exe를 옮긴 뒤에는 예전 경로가 남아
+    /// 실제로는 실행되지 않으므로 꺼진 것으로 보여 주고, 다시 켜면 새 경로로 덮어쓴다.
+    /// </summary>
+    private static bool IsAutoStartEnabled()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath);
+            if (key?.GetValue(RunValueName) is not string value) return false;
+            return string.Equals(value.Trim().Trim('"'), Environment.ProcessPath,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private void AutoStart_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath);
+            if (AutoStartMenu.IsChecked)
+                key.SetValue(RunValueName, $"\"{Environment.ProcessPath}\"");
+            else
+                key.DeleteValue(RunValueName, throwOnMissingValue: false);
+        }
+        catch (Exception) { }
+        AutoStartMenu.IsChecked = IsAutoStartEnabled();
+    }
+
+    /// <summary>메뉴를 열 때마다 실제 등록 상태를 다시 읽는다 (설정 앱에서 바꿨을 수 있음).</summary>
+    private void ContextMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        MarkActivity();
+        AutoStartMenu.IsChecked = IsAutoStartEnabled();
+    }
+
+#if DEBUG
+    private bool _fakeOn;
+
+    /// <summary>
+    /// 검증용: 환경 변수 COMPORTMONITOR_FAKE_PORT=COM99이면 목록을 다시 읽을 때마다 가짜 포트를
+    /// 넣었다 뺀다. 실제 장치를 꽂았다 빼지 않아도 연결·해제 강조와 알림을 확인할 수 있다.
+    /// </summary>
+    private void AddFakePort(List<PortEntry> current)
+    {
+        var fake = Environment.GetEnvironmentVariable("COMPORTMONITOR_FAKE_PORT");
+        if (string.IsNullOrEmpty(fake) || !_initialLoadDone) return;
+        if (!fake.StartsWith("COM", StringComparison.OrdinalIgnoreCase) ||
+            !int.TryParse(fake.AsSpan(3), out int n)) return;
+        _fakeOn = !_fakeOn;
+        if (_fakeOn)
+            current.Add(new PortEntry(fake.ToUpperInvariant(), n, "Fake Test Device",
+                @"USB\VID_1234&PID_5678\TEST01"));
+    }
+#endif
+
     private void Refresh_Click(object sender, RoutedEventArgs e) => _ = RefreshAsync();
 
-    private void Topmost_Click(object sender, RoutedEventArgs e) => Topmost = TopmostMenu.IsChecked;
+    private void Topmost_Click(object sender, RoutedEventArgs e)
+    {
+        Topmost = TopmostMenu.IsChecked;
+        RequestSave();
+    }
 
     private void BusyWatch_Click(object sender, RoutedEventArgs e)
     {
         _busyWatch = BusyMenu.IsChecked;
         UpdateBusyWatch();
+        RequestSave();
     }
 
     // ── 포트 별칭 ─────────────────────────────────────────────────
@@ -904,6 +1194,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     {
         ShowAliases = AliasMenu.IsChecked;
         MarkActivity();
+        RequestSave();
         // 바인딩 갱신 후 폭 재계산
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => ResizeToContent());
     }
@@ -1009,6 +1300,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 휠 위 = 진하게(불투명), 아래 = 투명하게 (0 아래는 전체 페이드 구간)
         _tint = Math.Clamp(_tint + (e.Delta > 0 ? TintStep : -TintStep), MinTint, MaxTint);
         ApplyTint();
+        RequestSave();
         e.Handled = true;
     }
 
@@ -1016,6 +1308,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     {
         _tint = DefaultTint;
         ApplyTint();
+        RequestSave();
     }
 
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
@@ -1023,7 +1316,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     // ── 창 위치 저장/복원 (물리 픽셀) ─────────────────────────────
 
     private record WindowSettings(int Left, int Top, bool BusyWatch = true, int Tint = DefaultTint,
-        bool AutoHide = true, bool ShowAliases = true, Dictionary<int, string>? Aliases = null);
+        bool AutoHide = true, bool ShowAliases = true, Dictionary<int, string>? Aliases = null,
+        bool Topmost = true, bool Notify = false, string? TerminalCommand = null);
 
     private static string SettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -1049,18 +1343,37 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             _tray.Dispose();
             _tray = null;
         }
+        if (_hotkeyRegistered) UnregisterHotKey(_hwnd, HotkeyId);
+        FlushSettings();
+    }
+
+    /// <summary>설정 변경을 잠시 모았다가 저장한다 (휠로 투명도를 연달아 바꿀 때 등).</summary>
+    private void RequestSave()
+    {
+        _saveTimer.Stop();
+        _saveTimer.Start();
+    }
+
+    /// <summary>대기 중인 저장을 바로 실행한다 (종료·세션 종료 때).</summary>
+    private void FlushSettings()
+    {
+        _saveTimer.Stop();
         SaveSettings();
     }
 
     private void SaveSettings()
     {
+        if (_hwnd == IntPtr.Zero) return;
         try
         {
             GetWindowRect(_hwnd, out var r);
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(
-                new WindowSettings(r.Left, r.Top, _busyWatch, _tint, _autoHide,
-                    ShowAliases, _aliases)));
+            var json = JsonSerializer.Serialize(new WindowSettings(r.Left, r.Top, _busyWatch, _tint,
+                _autoHide, ShowAliases, _aliases, Topmost, _notify, _terminalCommand));
+            // 쓰는 도중 끊겨도 기존 파일이 깨지지 않게 임시 파일에 쓴 뒤 바꿔 끼운다
+            var tmp = SettingsPath + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, SettingsPath, overwrite: true);
         }
         catch (Exception) { }
     }

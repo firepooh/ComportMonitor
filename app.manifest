@@ -7,6 +7,13 @@
       </requestedPrivileges>
     </security>
   </trustInfo>
-  <!-- PerMonitorV2는 AllowsTransparency+SizeToContent 조합에서 창 크기 미반영 버그가 있어
-       WPF 기본값(시스템 DPI 인식)을 사용한다 -->
+  <!-- 모니터마다 배율이 다를 때 Windows가 비트맵을 늘이거나 줄여 글자가 흐려지지 않도록
+       모니터별 DPI(PerMonitorV2)를 쓴다. 예전에 문제였던 AllowsTransparency·SizeToContent는
+       더 이상 쓰지 않고, 창 크기는 코드에서 실제 DPI로 직접 맞춘다. -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
+    </windowsSettings>
+  </application>
 </assembly>

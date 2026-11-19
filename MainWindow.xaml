@@ -36,14 +36,18 @@
             MinWidth="440">
 
         <Border.ContextMenu>
-            <ContextMenu>
+            <ContextMenu Opened="ContextMenu_Opened">
                 <MenuItem Header="Refresh" Click="Refresh_Click"/>
                 <MenuItem x:Name="TopmostMenu" Header="Always on top" IsCheckable="True" IsChecked="True" Click="Topmost_Click"/>
                 <MenuItem x:Name="BusyMenu" Header="Detect port usage" IsCheckable="True" IsChecked="True" Click="BusyWatch_Click"/>
                 <MenuItem x:Name="AutoHideMenu" Header="Auto-hide (after 5 min idle)" IsCheckable="True" IsChecked="True" Click="AutoHide_Click"/>
+                <MenuItem x:Name="NotifyMenu" Header="Notify on connect/disconnect" IsCheckable="True" Click="Notify_Click"/>
+                <MenuItem x:Name="AutoStartMenu" Header="Start with Windows" IsCheckable="True" Click="AutoStart_Click"/>
                 <Separator/>
                 <MenuItem x:Name="AliasMenu" Header="Show aliases" IsCheckable="True" IsChecked="True" Click="ShowAliases_Click"/>
                 <MenuItem Header="Set aliases..." Click="EditAliases_Click"/>
+                <MenuItem Header="Terminal command..." Click="TerminalCommand_Click"/>
+                <MenuItem Header="Reserved COM numbers..." Click="Reserved_Click"/>
                 <Separator/>
                 <MenuItem Header="Reset opacity (Ctrl+Wheel)" Click="ResetTint_Click"/>
                 <Separator/>
